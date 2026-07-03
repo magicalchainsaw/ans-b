@@ -1,9 +1,13 @@
 package router
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"ans-b/server/internal/auth"
 
 	"github.com/gin-gonic/gin"
 )
@@ -56,6 +60,7 @@ func TestRegisterRoutesHandlesCORSPreflight(t *testing.T) {
 
 func TestRegisterRoutesAddsExpectedEndpoints(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	t.Setenv("JWT_SECRET", "test-secret")
 	engine := gin.New()
 
 	RegisterRoutes(engine)
@@ -70,13 +75,13 @@ func TestRegisterRoutesAddsExpectedEndpoints(t *testing.T) {
 		{http.MethodPost, "/api/v1/auth/logout", http.StatusUnauthorized},
 		{http.MethodPost, "/api/v1/users/register", http.StatusBadRequest},
 		{http.MethodGet, "/api/v1/users/me", http.StatusUnauthorized},
-		{http.MethodGet, "/api/v1/knowledge", http.StatusNotImplemented},
-		{http.MethodPost, "/api/v1/knowledge", http.StatusBadRequest},
+		{http.MethodGet, "/api/v1/knowledge", http.StatusUnauthorized},
+		{http.MethodPost, "/api/v1/knowledge", http.StatusUnauthorized},
 		{http.MethodPost, "/api/v1/qa/ask", http.StatusUnauthorized},
 		{http.MethodGet, "/api/v1/search/candidates", http.StatusNotImplemented},
 		{http.MethodPost, "/api/v1/submissions", http.StatusUnauthorized},
 		{http.MethodGet, "/api/v1/submissions", http.StatusUnauthorized},
-		{http.MethodGet, "/api/v1/analytics/hot-questions", http.StatusNotImplemented},
+		{http.MethodGet, "/api/v1/analytics/hot-questions", http.StatusServiceUnavailable},
 		{http.MethodPost, "/api/v1/model/embeddings", http.StatusNotImplemented},
 		{http.MethodPost, "/api/v1/storage/imports", http.StatusNotImplemented},
 	}
@@ -93,4 +98,67 @@ func TestRegisterRoutesAddsExpectedEndpoints(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestKnowledgeRoutesRequireAdminRole(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("JWT_SECRET", "test-secret")
+
+	store := auth.NewMemorySessionStore()
+	manager := auth.NewTokenManager("test-secret", time.Hour)
+
+	engine := gin.New()
+	RegisterRoutesWithDBEmbedderAndSessionStore(engine, nil, nil, store)
+
+	tests := []struct {
+		name  string
+		token string
+		want  int
+	}{
+		{
+			name:  "student token is forbidden",
+			token: createRoleToken(t, manager, store, "student-session", auth.RoleStudent),
+			want:  http.StatusForbidden,
+		},
+		{
+			name:  "admin token reaches handler",
+			token: createRoleToken(t, manager, store, "admin-session", auth.RoleAdmin),
+			want:  http.StatusNotImplemented,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, "/api/v1/knowledge", nil)
+			request.Header.Set("Authorization", "Bearer "+tt.token)
+
+			engine.ServeHTTP(recorder, request)
+
+			if recorder.Code != tt.want {
+				t.Fatalf("expected GET /api/v1/knowledge to return %d, got %d", tt.want, recorder.Code)
+			}
+		})
+	}
+}
+
+func createRoleToken(t *testing.T, manager *auth.TokenManager, store auth.SessionStore, sessionID string, role string) string {
+	t.Helper()
+
+	token, _, err := manager.Sign(12, role+"-user", role, sessionID)
+	if err != nil {
+		t.Fatalf("sign token: %v", err)
+	}
+
+	if err := store.Create(context.Background(), auth.Session{
+		ID:        sessionID,
+		UserID:    12,
+		Username:  role + "-user",
+		Role:      role,
+		ExpiresAt: time.Now().Add(time.Hour),
+	}, time.Hour); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	return token
 }

@@ -27,6 +27,7 @@ type AnswerGenerator interface {
 
 type AccessRecorder interface {
 	IncrementKnowledgeAccess(ctx context.Context, itemID int64) error
+	RecordQuery(ctx context.Context, userID int64, userQuestion string, matchedItemID *int64, hitScore *float64) error
 }
 
 type Service struct {
@@ -77,7 +78,7 @@ func (s *Service) SetAccessRecorder(recorder AccessRecorder) {
 	s.accessRecorder = recorder
 }
 
-func (s *Service) Ask(ctx context.Context, question string, limit int) (*AskResult, error) {
+func (s *Service) Ask(ctx context.Context, userID int64, question string, limit int) (*AskResult, error) {
 	startedAt := time.Now()
 	question = strings.TrimSpace(question)
 	if question == "" {
@@ -111,14 +112,18 @@ func (s *Service) Ask(ctx context.Context, question string, limit int) (*AskResu
 		return nil, err
 	}
 	log.Printf("qa ask search done question=%q candidates=%d elapsed=%s", question, len(candidates), time.Since(stageStartedAt))
-	if len(candidates) == 0 {
-		return nil, errors.New("no relevant answer found")
-	}
 	result := &AskResult{
-		Answered:   candidates[0].Score >= s.minScore,
 		Candidates: candidates,
 		MinScore:   s.minScore,
 	}
+	if len(candidates) == 0 {
+		result.Candidates = []Answer{}
+		s.recordQuery(ctx, userID, question, candidates)
+		log.Printf("qa ask done question=%q answered=%t ai_enabled=%t elapsed=%s", question, result.Answered, result.AIEnabled, time.Since(startedAt))
+		return result, nil
+	}
+	result.Answered = candidates[0].Score >= s.minScore
+	s.recordQuery(ctx, userID, question, candidates)
 	if result.Answered {
 		result.Answer = &candidates[0]
 		s.incrementAccess(ctx, candidates[0].ItemID)
@@ -144,6 +149,22 @@ func (s *Service) incrementAccess(ctx context.Context, itemID int64) {
 		return
 	}
 	_ = s.accessRecorder.IncrementKnowledgeAccess(ctx, itemID)
+}
+
+func (s *Service) recordQuery(ctx context.Context, userID int64, question string, candidates []Answer) {
+	if s.accessRecorder == nil {
+		return
+	}
+
+	var matchedItemID *int64
+	var hitScore *float64
+	if len(candidates) > 0 {
+		if candidates[0].ItemID > 0 {
+			matchedItemID = &candidates[0].ItemID
+		}
+		hitScore = &candidates[0].Score
+	}
+	_ = s.accessRecorder.RecordQuery(ctx, userID, question, matchedItemID, hitScore)
 }
 
 func defaultMinScore() float64 {

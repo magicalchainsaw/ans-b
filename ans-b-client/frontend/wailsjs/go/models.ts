@@ -36,18 +36,51 @@ export namespace main {
 	    }
 	}
 
-	export class HotQuestionsStatus {
-	    available: boolean;
-	    message: string;
+	export class HotQuestion {
+	    question: string;
+	    count: number;
+	    category: string;
 
 	    static createFrom(source: any = {}) {
-	        return new HotQuestionsStatus(source);
+	        return new HotQuestion(source);
 	    }
 
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.available = source["available"];
-	        this.message = source["message"];
+	        this.question = source["question"];
+	        this.count = source["count"];
+	        this.category = source["category"];
+	    }
+	}
+
+	export class HotQuestionsResult {
+	    items: HotQuestion[];
+
+	    static createFrom(source: any = {}) {
+	        return new HotQuestionsResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.items = this.convertValues(source["items"], HotQuestion);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
 	    }
 	}
 

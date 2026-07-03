@@ -34,6 +34,7 @@ const reviewForm = reactive({
 const submitLoading = ref(false)
 const askLoading = ref(false)
 const adminLoading = ref(false)
+const logoutLoading = ref(false)
 const submissionsLoading = ref(false)
 const approveLoading = ref(false)
 const rejectLoading = ref(false)
@@ -67,9 +68,11 @@ const statusThemeMap = {
 }
 
 const canSubmitKnowledge = computed(() => (
+  isAdminLoggedIn.value &&
   knowledgeForm.question.trim() &&
   knowledgeForm.answer.trim() &&
-  !submitLoading.value
+  !submitLoading.value &&
+  !logoutLoading.value
 ))
 
 const canAsk = computed(() => askForm.question.trim() && !askLoading.value)
@@ -79,8 +82,8 @@ const canLoginAdmin = computed(() => (
   adminForm.password.trim() &&
   !adminLoading.value
 ))
-const canEnterReview = computed(() => isAdminLoggedIn.value && !enterReviewLoading.value)
-const isReviewBusy = computed(() => approveLoading.value || rejectLoading.value)
+const canEnterReview = computed(() => isAdminLoggedIn.value && !enterReviewLoading.value && !logoutLoading.value)
+const isReviewBusy = computed(() => approveLoading.value || rejectLoading.value || logoutLoading.value)
 const isSelectedPending = computed(() => selectedSubmission.value?.status === 'pending')
 const canEditReviewForm = computed(() => isSelectedPending.value && !isReviewBusy.value)
 const canApproveSubmission = computed(() => (
@@ -134,6 +137,8 @@ function isAdminAuthError(error) {
   return message.includes('login session') ||
     message.includes('missing current user') ||
     message.includes('permission denied') ||
+    message.includes('authorization header') ||
+    message.includes('token') ||
     message.includes('HTTP 401')
 }
 
@@ -214,10 +219,38 @@ async function loginAdmin() {
   }
 }
 
-function logoutAdmin() {
-  clearAdminSession()
+async function logoutAdmin() {
+  if (logoutLoading.value) return
+
   adminMessage.value = ''
   adminError.value = ''
+  reviewMessage.value = ''
+  reviewError.value = ''
+
+  if (!adminToken.value) {
+    clearAdminSession()
+    return
+  }
+
+  logoutLoading.value = true
+
+  try {
+    await requestJSON('/api/v1/auth/logout', {
+      method: 'POST',
+      auth: true,
+    })
+    clearAdminSession()
+    adminMessage.value = '已退出管理员账号'
+  } catch (error) {
+    if (isAdminAuthError(error)) {
+      clearAdminSession()
+      adminMessage.value = '管理员登录已失效，已退出当前会话'
+      return
+    }
+    adminError.value = `退出失败：${error.message}`
+  } finally {
+    logoutLoading.value = false
+  }
 }
 
 async function enterReviewPanel() {
@@ -357,13 +390,17 @@ async function submitKnowledge() {
   submitError.value = ''
 
   try {
-    await postJSON('/api/v1/knowledge', {
-      question: knowledgeForm.question.trim(),
-      answer: knowledgeForm.answer.trim(),
-      category: knowledgeForm.category.trim(),
-      tags: parseTags(knowledgeForm.tags),
-      source: knowledgeForm.source.trim(),
-      remark: knowledgeForm.remark.trim(),
+    await requestJSON('/api/v1/knowledge', {
+      method: 'POST',
+      auth: true,
+      payload: {
+        question: knowledgeForm.question.trim(),
+        answer: knowledgeForm.answer.trim(),
+        category: knowledgeForm.category.trim(),
+        tags: parseTags(knowledgeForm.tags),
+        source: knowledgeForm.source.trim(),
+        remark: knowledgeForm.remark.trim(),
+      },
     })
     submitMessage.value = '知识已写入数据库并完成向量化'
     knowledgeForm.question = ''
@@ -371,7 +408,9 @@ async function submitKnowledge() {
     knowledgeForm.tags = ''
     knowledgeForm.remark = ''
   } catch (error) {
-    submitError.value = error.message
+    if (!handleAdminAuthError(error)) {
+      submitError.value = error.message
+    }
   } finally {
     submitLoading.value = false
   }
@@ -461,7 +500,14 @@ onMounted(() => {
           >
             进入审核端
           </t-button>
-          <t-button variant="text" :disabled="enterReviewLoading" @click="logoutAdmin">退出</t-button>
+          <t-button
+            variant="text"
+            :loading="logoutLoading"
+            :disabled="enterReviewLoading || logoutLoading"
+            @click="logoutAdmin"
+          >
+            退出
+          </t-button>
         </div>
       </div>
 
@@ -510,7 +556,14 @@ onMounted(() => {
             >
               刷新
             </t-button>
-            <t-button variant="text" :disabled="isReviewBusy" @click="logoutAdmin">退出</t-button>
+            <t-button
+              variant="text"
+              :loading="logoutLoading"
+              :disabled="isReviewBusy || logoutLoading"
+              @click="logoutAdmin"
+            >
+              退出
+            </t-button>
           </div>
 
           <div v-if="submissionsLoading" class="loading-state">
@@ -682,7 +735,7 @@ onMounted(() => {
       <section class="panel">
         <div class="panel-title">
           <h2>知识录入</h2>
-          <span>保存时会生成向量并入库</span>
+          <span>{{ isAdminLoggedIn ? '保存时会生成向量并入库' : '请先登录管理员账号后再写入知识库' }}</span>
         </div>
 
         <t-form label-align="top" @submit.prevent>
@@ -691,7 +744,7 @@ onMounted(() => {
               v-model="knowledgeForm.question"
               placeholder="例如：三食堂晚上几点关门？"
               :autosize="{ minRows: 2, maxRows: 4 }"
-              :disabled="submitLoading"
+              :disabled="submitLoading || logoutLoading || !isAdminLoggedIn"
             />
           </t-form-item>
 
@@ -700,7 +753,7 @@ onMounted(() => {
               v-model="knowledgeForm.answer"
               placeholder="填写可以直接返回给用户的答案"
               :autosize="{ minRows: 5, maxRows: 8 }"
-              :disabled="submitLoading"
+              :disabled="submitLoading || logoutLoading || !isAdminLoggedIn"
             />
           </t-form-item>
 
@@ -709,14 +762,14 @@ onMounted(() => {
               <t-input
                 v-model="knowledgeForm.category"
                 placeholder="餐饮服务"
-                :disabled="submitLoading"
+                :disabled="submitLoading || logoutLoading || !isAdminLoggedIn"
               />
             </t-form-item>
             <t-form-item label="标签">
               <t-input
                 v-model="knowledgeForm.tags"
                 placeholder="食堂，营业时间，关门"
-                :disabled="submitLoading"
+                :disabled="submitLoading || logoutLoading || !isAdminLoggedIn"
               />
             </t-form-item>
           </div>
@@ -726,14 +779,14 @@ onMounted(() => {
               <t-input
                 v-model="knowledgeForm.source"
                 placeholder="后勤公告"
-                :disabled="submitLoading"
+                :disabled="submitLoading || logoutLoading || !isAdminLoggedIn"
               />
             </t-form-item>
             <t-form-item label="备注">
               <t-input
                 v-model="knowledgeForm.remark"
                 placeholder="可选"
-                :disabled="submitLoading"
+                :disabled="submitLoading || logoutLoading || !isAdminLoggedIn"
               />
             </t-form-item>
           </div>

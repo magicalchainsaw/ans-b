@@ -48,6 +48,7 @@ const hotLoading = ref(false)
 const submitMessage = ref('')
 const submitError = ref('')
 const historyError = ref('')
+const hotError = ref('')
 const hotState = ref(null)
 const submissions = ref([])
 const selectedSubmissionID = ref(null)
@@ -197,15 +198,17 @@ async function loadHotQuestionsStatus() {
 
   hotLoading.value = true
   shellError.value = ''
+  hotError.value = ''
 
   try {
     hotState.value = await GetHotQuestionsStatus(10)
+    if (!Array.isArray(hotState.value?.items)) {
+      hotState.value = { items: [] }
+    }
   } catch (error) {
-    if (!handleProtectedError(error, '获取热点问题状态失败')) {
-      hotState.value = {
-        available: false,
-        message: errorMessage(error),
-      }
+    if (!handleProtectedError(error, '获取热点问题失败')) {
+      hotState.value = { items: [] }
+      hotError.value = errorMessage(error)
     }
   } finally {
     hotLoading.value = false
@@ -488,19 +491,28 @@ onUnmounted(() => {
             <div class="panel-head">
               <div>
                 <h2>热点问题</h2>
-                <p>该入口已经对接后端状态，当前按服务实际能力展示。</p>
+                <p>根据学生问答日志聚合，展示近期最常被问到的问题。</p>
               </div>
               <button class="secondary-btn" :disabled="hotLoading" @click="loadHotQuestionsStatus">
-                {{ hotLoading ? '检测中...' : '重新检测' }}
+                {{ hotLoading ? '加载中...' : '刷新热点' }}
               </button>
             </div>
 
-            <div v-if="hotLoading" class="empty-state">正在获取热点问题状态...</div>
-            <div v-else-if="hotState?.available" class="empty-state">
-              热点问题接口已可用，当前客户端已完成状态对齐，可继续扩展列表展示。
+            <div v-if="hotLoading" class="empty-state">正在获取热点问题...</div>
+            <div v-else-if="hotError" class="empty-state">
+              {{ hotError }}
+            </div>
+            <div v-else-if="hotState?.items?.length" class="hot-list">
+              <article v-for="item in hotState.items" :key="item.question" class="hot-item">
+                <div class="hot-item-head">
+                  <h3>{{ item.question }}</h3>
+                  <span class="hot-count">{{ item.count }} 次</span>
+                </div>
+                <p>{{ item.category || '未分类' }}</p>
+              </article>
             </div>
             <div v-else class="empty-state">
-              {{ hotState?.message || '热点问题功能开发中。' }}
+              暂无热点问题。
             </div>
           </section>
         </div>
@@ -1002,6 +1014,53 @@ onUnmounted(() => {
   padding: 24px;
   background: #f8fafc;
   color: #475569;
+}
+
+.hot-list {
+  display: grid;
+  gap: 12px;
+}
+
+.hot-item {
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  padding: 16px;
+  background: #fff;
+}
+
+.hot-item-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.hot-item h3,
+.hot-item p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.hot-item h3 {
+  color: #0f172a;
+  font-size: 16px;
+}
+
+.hot-item p {
+  margin-top: 10px;
+  color: #64748b;
+}
+
+.hot-count {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: rgba(14, 165, 233, 0.10);
+  color: #0369a1;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 @media (max-width: 1180px) {

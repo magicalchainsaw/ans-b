@@ -31,7 +31,7 @@ func TestServiceAskReturnsBestVectorAnswer(t *testing.T) {
 	embedder := &fakeEmbedder{embedding: []float64{0.1, 0.2, 0.3}}
 	service := NewService(repo, embedder)
 
-	result, err := service.Ask(context.Background(), "食堂几点关门？", 5)
+	result, err := service.Ask(context.Background(), 7, "食堂几点关门？", 5)
 	if err != nil {
 		t.Fatalf("ask: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestServiceAskDoesNotAnswerBelowMinScore(t *testing.T) {
 	embedder := &fakeEmbedder{embedding: []float64{0.1, 0.2, 0.3}}
 	service := NewService(repo, embedder)
 
-	result, err := service.Ask(context.Background(), "asdkjhasdkjh", 5)
+	result, err := service.Ask(context.Background(), 7, "asdkjhasdkjh", 5)
 	if err != nil {
 		t.Fatalf("ask: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestServiceAskAddsAIAnswerWhenGeneratorSucceeds(t *testing.T) {
 	generator := &fakeGenerator{answer: "一食堂晚餐到 20:00 结束。"}
 	service := NewService(repo, embedder, generator)
 
-	result, err := service.Ask(context.Background(), "食堂几点关门？", 5)
+	result, err := service.Ask(context.Background(), 7, "食堂几点关门？", 5)
 	if err != nil {
 		t.Fatalf("ask: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestServiceAskKeepsSearchAnswerWhenAIGenerationFails(t *testing.T) {
 	generator := &fakeGenerator{err: errors.New("upstream unavailable")}
 	service := NewService(repo, embedder, generator)
 
-	result, err := service.Ask(context.Background(), "食堂几点关门？", 5)
+	result, err := service.Ask(context.Background(), 7, "食堂几点关门？", 5)
 	if err != nil {
 		t.Fatalf("ask: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestServiceAskDoesNotCallAIWhenBelowMinScore(t *testing.T) {
 	generator := &fakeGenerator{answer: "不应调用"}
 	service := NewService(repo, embedder, generator)
 
-	result, err := service.Ask(context.Background(), "asdkjhasdkjh", 5)
+	result, err := service.Ask(context.Background(), 7, "asdkjhasdkjh", 5)
 	if err != nil {
 		t.Fatalf("ask: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestServiceAskIncrementsAccessWhenAnswered(t *testing.T) {
 	service := NewService(repo, embedder)
 	service.SetAccessRecorder(recorder)
 
-	result, err := service.Ask(context.Background(), "图书馆几点关门？", 5)
+	result, err := service.Ask(context.Background(), 7, "图书馆几点关门？", 5)
 	if err != nil {
 		t.Fatalf("ask: %v", err)
 	}
@@ -215,6 +215,15 @@ func TestServiceAskIncrementsAccessWhenAnswered(t *testing.T) {
 	}
 	if recorder.itemID != 42 || recorder.calls != 1 {
 		t.Fatalf("expected access count for item 42 once, got item %d calls %d", recorder.itemID, recorder.calls)
+	}
+	if recorder.queryCalls != 1 || recorder.queryUserID != 7 {
+		t.Fatalf("expected one query log for user 7, got calls %d user %d", recorder.queryCalls, recorder.queryUserID)
+	}
+	if recorder.queryMatchedItemID == nil || *recorder.queryMatchedItemID != 42 {
+		t.Fatalf("expected matched item 42, got %#v", recorder.queryMatchedItemID)
+	}
+	if recorder.queryHitScore == nil || *recorder.queryHitScore != 0.81 {
+		t.Fatalf("expected hit score 0.81, got %#v", recorder.queryHitScore)
 	}
 }
 
@@ -234,7 +243,7 @@ func TestServiceAskDoesNotIncrementAccessWhenBelowMinScore(t *testing.T) {
 	service := NewService(repo, embedder)
 	service.SetAccessRecorder(recorder)
 
-	result, err := service.Ask(context.Background(), "unknown", 5)
+	result, err := service.Ask(context.Background(), 7, "unknown", 5)
 	if err != nil {
 		t.Fatalf("ask: %v", err)
 	}
@@ -243,6 +252,12 @@ func TestServiceAskDoesNotIncrementAccessWhenBelowMinScore(t *testing.T) {
 	}
 	if recorder.calls != 0 {
 		t.Fatalf("expected no access count increment, got %d", recorder.calls)
+	}
+	if recorder.queryCalls != 1 {
+		t.Fatalf("expected one query log, got %d", recorder.queryCalls)
+	}
+	if recorder.queryMatchedItemID == nil || *recorder.queryMatchedItemID != 42 {
+		t.Fatalf("expected top candidate item id to be logged, got %#v", recorder.queryMatchedItemID)
 	}
 }
 
@@ -262,7 +277,7 @@ func TestServiceAskIgnoresAccessRecorderError(t *testing.T) {
 	service := NewService(repo, embedder)
 	service.SetAccessRecorder(recorder)
 
-	result, err := service.Ask(context.Background(), "图书馆几点关门？", 5)
+	result, err := service.Ask(context.Background(), 7, "图书馆几点关门？", 5)
 	if err != nil {
 		t.Fatalf("ask: %v", err)
 	}
@@ -272,13 +287,47 @@ func TestServiceAskIgnoresAccessRecorderError(t *testing.T) {
 	if recorder.calls != 1 {
 		t.Fatalf("expected recorder to be called once, got %d", recorder.calls)
 	}
+	if recorder.queryCalls != 1 {
+		t.Fatalf("expected query recorder to be called once, got %d", recorder.queryCalls)
+	}
 }
 
 func TestServiceAskRejectsEmptyQuestion(t *testing.T) {
 	service := NewService(&fakeRepository{}, &fakeEmbedder{})
 
-	if _, err := service.Ask(context.Background(), "   ", 5); err == nil {
+	if _, err := service.Ask(context.Background(), 7, "   ", 5); err == nil {
 		t.Fatal("expected empty question to fail")
+	}
+}
+
+func TestServiceAskReturnsUnansweredWhenNoCandidates(t *testing.T) {
+	repo := &fakeRepository{results: []Answer{}}
+	embedder := &fakeEmbedder{embedding: []float64{0.1, 0.2, 0.3}}
+	recorder := &fakeAccessRecorder{}
+	service := NewService(repo, embedder)
+	service.SetAccessRecorder(recorder)
+
+	result, err := service.Ask(context.Background(), 7, "食堂几点关门？", 5)
+	if err != nil {
+		t.Fatalf("ask: %v", err)
+	}
+	if result.Answered {
+		t.Fatal("expected unanswered result")
+	}
+	if result.Answer != nil {
+		t.Fatalf("expected no answer, got %#v", result.Answer)
+	}
+	if len(result.Candidates) != 0 {
+		t.Fatalf("expected no candidates, got %#v", result.Candidates)
+	}
+	if recorder.calls != 0 {
+		t.Fatalf("expected no access increment, got %d", recorder.calls)
+	}
+	if recorder.queryCalls != 1 {
+		t.Fatalf("expected query log to be written once, got %d", recorder.queryCalls)
+	}
+	if recorder.queryMatchedItemID != nil || recorder.queryHitScore != nil {
+		t.Fatalf("expected no matched item or score, got %#v %#v", recorder.queryMatchedItemID, recorder.queryHitScore)
 	}
 }
 
@@ -320,13 +369,27 @@ func (g *fakeGenerator) GenerateAnswer(ctx context.Context, question string, can
 }
 
 type fakeAccessRecorder struct {
-	calls  int
-	itemID int64
-	err    error
+	calls              int
+	itemID             int64
+	queryCalls         int
+	queryUserID        int64
+	queryQuestion      string
+	queryMatchedItemID *int64
+	queryHitScore      *float64
+	err                error
 }
 
 func (r *fakeAccessRecorder) IncrementKnowledgeAccess(ctx context.Context, itemID int64) error {
 	r.calls++
 	r.itemID = itemID
+	return r.err
+}
+
+func (r *fakeAccessRecorder) RecordQuery(ctx context.Context, userID int64, userQuestion string, matchedItemID *int64, hitScore *float64) error {
+	r.queryCalls++
+	r.queryUserID = userID
+	r.queryQuestion = userQuestion
+	r.queryMatchedItemID = matchedItemID
+	r.queryHitScore = hitScore
 	return r.err
 }

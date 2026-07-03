@@ -356,7 +356,7 @@ func TestAuthExpiryClearsStoredToken(t *testing.T) {
 	}
 }
 
-func TestGetHotQuestionsStatusReturnsGracefulTodoState(t *testing.T) {
+func TestGetHotQuestionsStatusReturnsItems(t *testing.T) {
 	app := NewApp()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/analytics/hot-questions" {
@@ -365,10 +365,18 @@ func TestGetHotQuestionsStatusReturnsGracefulTodoState(t *testing.T) {
 		if !strings.Contains(r.URL.RawQuery, "limit=6") {
 			t.Fatalf("unexpected query: %q", r.URL.RawQuery)
 		}
-		w.WriteHeader(http.StatusNotImplemented)
 		writeJSON(t, w, map[string]any{
-			"code":    "TODO",
-			"message": "TODO: implement hot question analytics server logic",
+			"code":    0,
+			"message": "success",
+			"data": map[string]any{
+				"items": []map[string]any{
+					{
+						"question": "食堂几点关门？",
+						"count":    3,
+						"category": "餐饮服务",
+					},
+				},
+			},
 		})
 	}))
 	defer server.Close()
@@ -378,11 +386,11 @@ func TestGetHotQuestionsStatusReturnsGracefulTodoState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hot questions status: %v", err)
 	}
-	if status.Available {
-		t.Fatalf("expected unavailable status, got %#v", status)
+	if len(status.Items) != 1 {
+		t.Fatalf("expected one hot question, got %#v", status)
 	}
-	if !strings.Contains(status.Message, "hot question analytics") {
-		t.Fatalf("unexpected status message: %#v", status)
+	if status.Items[0].Question != "食堂几点关门？" || status.Items[0].Count != 3 {
+		t.Fatalf("unexpected status items: %#v", status.Items)
 	}
 }
 

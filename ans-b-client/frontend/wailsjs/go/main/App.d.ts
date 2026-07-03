@@ -8,7 +8,7 @@ export function CreateSubmission(arg1:main.SubmissionInput):Promise<main.Submiss
 
 export function GetCurrentUser():Promise<main.UserProfile>;
 
-export function GetHotQuestionsStatus(arg1:number):Promise<main.HotQuestionsStatus>;
+export function GetHotQuestionsStatus(arg1:number):Promise<main.HotQuestionsResult>;
 
 export function Greet(arg1:string):Promise<string>;
 

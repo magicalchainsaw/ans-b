@@ -78,9 +78,14 @@ type Submission struct {
 	ReviewedAt   *time.Time `json:"reviewed_at"`
 }
 
-type HotQuestionsStatus struct {
-	Available bool   `json:"available"`
-	Message   string `json:"message"`
+type HotQuestion struct {
+	Question string `json:"question"`
+	Count    int64  `json:"count"`
+	Category string `json:"category"`
+}
+
+type HotQuestionsResult struct {
+	Items []HotQuestion `json:"items"`
 }
 
 // NewApp creates a new App application struct.
@@ -198,34 +203,21 @@ func (a *App) ListMySubmissions() ([]Submission, error) {
 	return submissions, nil
 }
 
-func (a *App) GetHotQuestionsStatus(limit int) (*HotQuestionsStatus, error) {
+func (a *App) GetHotQuestionsStatus(limit int) (*HotQuestionsResult, error) {
 	if limit <= 0 {
 		limit = 10
 	}
 	query := url.Values{}
 	query.Set("limit", fmt.Sprintf("%d", limit))
 
-	statusCode, envelope, err := a.doRequest(http.MethodGet, "/api/v1/analytics/hot-questions?"+query.Encode(), nil, false)
-	if err != nil {
+	var result HotQuestionsResult
+	if err := a.doJSON(http.MethodGet, "/api/v1/analytics/hot-questions?"+query.Encode(), nil, false, &result); err != nil {
 		return nil, err
 	}
-	if statusCode == http.StatusNotImplemented || responseCodeEquals(envelope.Code, "TODO") {
-		message := strings.TrimSpace(envelope.Message)
-		if message == "" {
-			message = "热点问题功能开发中"
-		}
-		return &HotQuestionsStatus{
-			Available: false,
-			Message:   message,
-		}, nil
+	if result.Items == nil {
+		result.Items = []HotQuestion{}
 	}
-	if apiErr := a.responseError(statusCode, envelope); apiErr != nil {
-		return nil, apiErr
-	}
-	return &HotQuestionsStatus{
-		Available: true,
-		Message:   strings.TrimSpace(envelope.Message),
-	}, nil
+	return &result, nil
 }
 
 func (a *App) Logout() error {

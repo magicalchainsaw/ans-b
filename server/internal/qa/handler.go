@@ -3,6 +3,8 @@ package qa
 import (
 	"net/http"
 
+	"ans-b/server/internal/auth"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -19,6 +21,16 @@ func (h *Handler) RegisterRoutes(group *gin.RouterGroup) {
 }
 
 func (h *Handler) Ask(c *gin.Context) {
+	claims, ok := auth.CurrentUser(c)
+	if !ok || claims.Role != auth.RoleStudent {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code":    40001,
+			"message": "missing current user",
+			"data":    nil,
+		})
+		return
+	}
+
 	var request struct {
 		Question string `json:"question"`
 		Limit    int    `json:"limit"`
@@ -32,7 +44,7 @@ func (h *Handler) Ask(c *gin.Context) {
 		return
 	}
 
-	answer, err := h.service.Ask(c.Request.Context(), request.Question, request.Limit)
+	answer, err := h.service.Ask(c.Request.Context(), claims.UserID, request.Question, request.Limit)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    40000,

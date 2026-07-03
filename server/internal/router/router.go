@@ -72,7 +72,7 @@ func RegisterRoutesWithDBEmbedderAndSessionStore(engine *gin.Engine, db *sql.DB,
 
 	analyticsService := analytics.NewService(analytics.NewRepository(db))
 
-	knowledge.NewHandler(knowledge.NewService(knowledge.NewRepository(db), embedder)).RegisterRoutes(api.Group("/knowledge"))
+	knowledge.NewHandler(knowledge.NewService(knowledge.NewRepository(db), embedder)).RegisterRoutes(api.Group("/knowledge", auth.Middleware(tokenManager, sessionStore, auth.RoleAdmin)))
 	qaService := qa.NewService(qa.NewRepository(db), embedder, generator)
 	qaService.SetAccessRecorder(analyticsService)
 	qa.NewHandler(qaService).RegisterRoutes(api.Group("/qa", auth.Middleware(tokenManager, sessionStore, auth.RoleStudent)))

@@ -12,10 +12,9 @@
 
 | 方法 | 路径 | 功能 | 鉴权 |
 |---|---|---|---|
-| POST | `/api/qa/ask` | 提交自然语言问题并获取答案 | 否 |
-| GET | `/api/hot-questions` | 获取热点问题排行榜 | 否 |
-| POST | `/api/users/register` | 学生注册 | 否 |
-| POST | `/api/users/login` | 学生登录 | 否 |
+| GET | `/api/v1/analytics/hot-questions` | 获取热点问题排行榜 | 否 |
+| POST | `/api/v1/users/register` | 学生注册 | 否 |
+| POST | `/api/v1/auth/student/login` | 学生登录 | 否 |
 
 ### 2.2 学生接口
 
@@ -23,9 +22,10 @@
 
 | 方法 | 路径 | 功能 | 鉴权 |
 |---|---|---|---|
-| GET | `/api/users/me` | 获取当前学生信息 | 是 |
-| POST | `/api/submissions` | 提交新的问答内容 | 是 |
-| GET | `/api/users/me/submissions` | 获取自己的投稿历史 | 是 |
+| GET | `/api/v1/users/me` | 获取当前学生信息 | 是 |
+| POST | `/api/v1/qa/ask` | 提交自然语言问题并获取答案 | 是 |
+| POST | `/api/v1/submissions` | 提交新的问答内容 | 是 |
+| GET | `/api/v1/submissions` | 获取自己的投稿历史 | 是 |
 
 ### 2.3 管理员接口
 
@@ -33,31 +33,32 @@
 
 | 方法 | 路径 | 功能 | 鉴权 |
 |---|---|---|---|
-| POST | `/api/admin/login` | 管理员登录 | 否 |
-| GET | `/api/admin/knowledge` | 查询知识列表 | 是 |
-| POST | `/api/admin/knowledge` | 新增知识 | 是 |
-| PUT | `/api/admin/knowledge/{id}` | 编辑知识 | 是 |
-| DELETE | `/api/admin/knowledge/{id}` | 删除知识 | 是 |
-| POST | `/api/admin/knowledge/import` | 批量导入 FAQ | 是 |
-| GET | `/api/admin/submissions` | 查询投稿列表 | 是 |
-| POST | `/api/admin/submissions/{id}/approve` | 审核通过投稿 | 是 |
-| POST | `/api/admin/submissions/{id}/reject` | 驳回投稿 | 是 |
+| POST | `/api/v1/auth/admin/login` | 管理员登录 | 否 |
+| POST | `/api/v1/auth/logout` | 注销当前管理员会话 | 是 |
+| GET | `/api/v1/knowledge` | 查询知识列表 | 是 |
+| POST | `/api/v1/knowledge` | 新增知识 | 是 |
+| PUT | `/api/v1/knowledge/{id}` | 编辑知识 | 是 |
+| DELETE | `/api/v1/knowledge/{id}` | 删除知识 | 是 |
+| POST | `/api/v1/knowledge/import` | 批量导入 FAQ | 是 |
+| GET | `/api/v1/submissions` | 查询投稿列表 | 是 |
+| POST | `/api/v1/submissions/{id}/approve` | 审核通过投稿 | 是 |
+| POST | `/api/v1/submissions/{id}/reject` | 驳回投稿 | 是 |
 
 ### 2.4 接口数量统计
 
 | 类型 | 数量 |
 |---|---:|
-| 公共接口 | 4 |
-| 学生接口 | 3 |
-| 管理员接口 | 9 |
-| 合计 | 16 |
+| 公共接口 | 3 |
+| 学生接口 | 4 |
+| 管理员接口 | 10 |
+| 合计 | 17 |
 
 ## 3. 通用约定
 
 ### 3.1 基础路径
 
 ```text
-/api
+/api/v1
 ```
 
 ### 3.2 请求格式
@@ -80,7 +81,7 @@ Content-Type: application/json
 
 ### 3.4 鉴权方式
 
-学生客户端调用学生接口时需要携带学生 JWT，`admin-console` 调用管理员接口时需要携带管理员 JWT。
+学生客户端调用学生接口时需要携带学生 JWT，`admin-console` 调用管理员接口时需要携带管理员 JWT。管理员点击退出时，前端会调用 `/api/v1/auth/logout` 撤销当前服务端会话。
 
 ```http
 Authorization: Bearer <token>
@@ -105,8 +106,10 @@ Authorization: Bearer <token>
 ### 5.1 提交问题
 
 ```text
-POST /api/qa/ask
+POST /api/v1/qa/ask
 ```
+
+鉴权：需要学生 JWT。
 
 请求参数：
 
@@ -126,12 +129,13 @@ POST /api/qa/ask
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| answer | string | 回答内容 |
-| matched_question | string | 匹配到的知识问题 |
-| score | number | 匹配分数 |
-| intent | string | 识别出的意图 |
-| related | array | 相关问题列表 |
-| hit | boolean | 是否命中高置信度答案 |
+| answered | boolean | 是否命中高置信度答案 |
+| answer | object/null | 命中的最佳答案，未命中时为空 |
+| candidates | array | 候选知识列表 |
+| min_score | number | 当前命中阈值 |
+| ai_answer | string | AI 增强答案，失败时为空 |
+| ai_enabled | boolean | 是否启用 AI 回答生成 |
+| ai_error | string | AI 回答生成失败原因，成功时为空 |
 
 响应示例：
 
@@ -140,15 +144,29 @@ POST /api/qa/ask
   "code": 0,
   "message": "success",
   "data": {
-    "answer": "一食堂晚餐营业至 20:00，二食堂营业至 21:00。",
-    "matched_question": "食堂营业时间是什么？",
-    "score": 0.86,
-    "intent": "查询时间",
-    "related": [
-      "一食堂在哪里？",
-      "校园卡可以在食堂充值吗？"
+    "answered": true,
+    "answer": {
+      "item_id": 12,
+      "chunk_id": 31,
+      "matched_question": "食堂营业时间是什么？",
+      "answer": "一食堂晚餐营业至 20:00，二食堂营业至 21:00。",
+      "category": "餐饮服务",
+      "score": 0.8600
+    },
+    "candidates": [
+      {
+        "item_id": 12,
+        "chunk_id": 31,
+        "matched_question": "食堂营业时间是什么？",
+        "answer": "一食堂晚餐营业至 20:00，二食堂营业至 21:00。",
+        "category": "餐饮服务",
+        "score": 0.8600
+      }
     ],
-    "hit": true
+    "min_score": 0.45,
+    "ai_answer": "二食堂晚餐营业至 21:00。",
+    "ai_enabled": true,
+    "ai_error": ""
   }
 }
 ```
@@ -158,7 +176,7 @@ POST /api/qa/ask
 ### 6.1 获取热点问题
 
 ```text
-GET /api/hot-questions
+GET /api/v1/analytics/hot-questions
 ```
 
 查询参数：
@@ -186,7 +204,7 @@ GET /api/hot-questions
 ### 7.1 学生注册
 
 ```text
-POST /api/users/register
+POST /api/v1/users/register
 ```
 
 请求参数：
@@ -208,7 +226,7 @@ POST /api/users/register
 ### 7.2 学生登录
 
 ```text
-POST /api/users/login
+POST /api/v1/auth/student/login
 ```
 
 请求参数：
@@ -228,7 +246,7 @@ POST /api/users/login
 ### 7.3 获取当前学生信息
 
 ```text
-GET /api/users/me
+GET /api/v1/users/me
 ```
 
 鉴权：需要学生 JWT。
@@ -246,7 +264,7 @@ GET /api/users/me
 ### 8.1 提交新问答
 
 ```text
-POST /api/submissions
+POST /api/v1/submissions
 ```
 
 鉴权：需要学生 JWT。
@@ -272,25 +290,12 @@ POST /api/submissions
 ### 8.2 获取自己的投稿历史
 
 ```text
-GET /api/users/me/submissions
+GET /api/v1/submissions
 ```
 
 鉴权：需要学生 JWT。
 
-查询参数：
-
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| status | string | 否 | 投稿状态 |
-| page | number | 否 | 页码 |
-| page_size | number | 否 | 每页数量 |
-
-响应数据：
-
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| items | array | 投稿记录列表 |
-| total | number | 总数量 |
+响应数据：直接返回投稿记录数组。
 
 投稿记录项：
 
@@ -309,7 +314,7 @@ GET /api/users/me/submissions
 ### 9.1 管理员登录
 
 ```text
-POST /api/admin/login
+POST /api/v1/auth/admin/login
 ```
 
 请求参数：
@@ -326,12 +331,28 @@ POST /api/admin/login
 | token | string | JWT |
 | expires_in | number | 过期秒数 |
 
+### 9.2 管理员注销
+
+```text
+POST /api/v1/auth/logout
+```
+
+请求头：
+
+```http
+Authorization: Bearer <token>
+```
+
+说明：调用成功后会撤销当前 Redis/会话存储中的登录会话。
+
 ## 10. 知识库管理接口
+
+说明：当前运行时仅 `POST /api/v1/knowledge` 已实现写入；列表、详情、编辑、删除、导入仍返回 TODO 占位响应。
 
 ### 10.1 查询知识列表
 
 ```text
-GET /api/admin/knowledge
+GET /api/v1/knowledge
 ```
 
 查询参数：
@@ -347,24 +368,24 @@ GET /api/admin/knowledge
 ### 10.2 新增知识
 
 ```text
-POST /api/admin/knowledge
+POST /api/v1/knowledge
 ```
 
 请求参数：
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| title | string | 是 | 标题 |
 | question | string | 是 | 问题 |
 | answer | string | 是 | 答案 |
 | category | string | 否 | 分类 |
 | tags | array | 否 | 标签 |
-| status | string | 是 | 状态 |
+| source | string | 否 | 信息来源 |
+| remark | string | 否 | 备注 |
 
 ### 10.3 编辑知识
 
 ```text
-PUT /api/admin/knowledge/{id}
+PUT /api/v1/knowledge/{id}
 ```
 
 路径参数：
@@ -378,7 +399,7 @@ PUT /api/admin/knowledge/{id}
 ### 10.4 删除知识
 
 ```text
-DELETE /api/admin/knowledge/{id}
+DELETE /api/v1/knowledge/{id}
 ```
 
 路径参数：
@@ -390,7 +411,7 @@ DELETE /api/admin/knowledge/{id}
 ### 10.5 批量导入 FAQ
 
 ```text
-POST /api/admin/knowledge/import
+POST /api/v1/knowledge/import
 ```
 
 请求格式：
@@ -418,22 +439,26 @@ Content-Type: multipart/form-data
 ### 11.1 查询投稿列表
 
 ```text
-GET /api/admin/submissions
+GET /api/v1/submissions
 ```
+
+鉴权：需要管理员 JWT。
 
 查询参数：
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | status | string | 否 | 投稿状态 |
-| page | number | 否 | 页码 |
-| page_size | number | 否 | 每页数量 |
+
+响应数据：直接返回投稿记录数组。
 
 ### 11.2 审核通过投稿
 
 ```text
-POST /api/admin/submissions/{id}/approve
+POST /api/v1/submissions/{id}/approve
 ```
+
+鉴权：需要管理员 JWT。
 
 路径参数：
 
@@ -445,13 +470,21 @@ POST /api/admin/submissions/{id}/approve
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
+| question | string | 是 | 审核后确认入库的问题 |
+| answer | string | 是 | 审核后确认入库的答案 |
+| category | string | 否 | 分类 |
+| tags | array | 否 | 标签 |
+| source | string | 否 | 信息来源 |
+| remark | string | 否 | 备注 |
 | reviewer_note | string | 否 | 审核备注 |
 
 ### 11.3 驳回投稿
 
 ```text
-POST /api/admin/submissions/{id}/reject
+POST /api/v1/submissions/{id}/reject
 ```
+
+鉴权：需要管理员 JWT。
 
 路径参数：
 
